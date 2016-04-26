@@ -53,18 +53,27 @@ class Server(object):
         await write_file_to_writer(path, writer)
         return
 
-    async def create_file(self, path, header, reader, writer):
+    async def read_request_body(self, header, reader):
         content = ''
         if 'Content-Length' in header:
             content_len = int(header['Content-Length'])
             content = await reader.read(content_len)
-        with open(path, 'bw') as write_file:
+        return content
+
+    async def write_to_file(self, path, header, reader, writer, mode):
+        content = await self.read_request_body(header, reader)
+        with open(path, mode) as write_file:
             write_file.write(content)
             write_file.flush()
         write_header(writer)
         writer.write(b'{"status": "success"}')
-        writer.drain()
-
+            
+    async def delete_file(self, realpath, writer):
+        try:
+            os.remove(realpath)
+            writer.write(b'{"status": "success"}')
+        except OSError:
+            writer.write(b'{"status": "failure", "message": "Cannot delete a directory"}')
 
     async def handle_request(self, reader, writer):
         x = await reader.readline() # GET /... version
@@ -76,7 +85,11 @@ class Server(object):
         if verb == 'GET':
             await self.get_file(realpath, writer)
         if verb == 'PUT':
-            await self.create_file(realpath, header, reader, writer)
+            await self.write_to_file(realpath, header, reader, writer, mode='bw')
+        if verb == 'POST':
+            await self.write_to_file(realpath, header, reader, writer, mode='ba')
+        if verb == 'DELETE':
+            await self.delete_file(realpath, writer)
         writer.drain()
         writer.close()
 
